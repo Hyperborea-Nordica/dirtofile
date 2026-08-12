@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  go:
+    name: Go (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    defaults:
+      run:
+        working-directory: go
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.21"
+      - run: go mod tidy
+      - run: go vet ./...
+      - run: go test -v ./...
+      - name: Fuzz sanitize (Unix)
+        if: runner.os == 'Linux'
+        run: go test -fuzz=FuzzSanitizeArchivePath -fuzztime=20s .
+
+  rust:
+    name: Rust (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --verbose
+      - run: cargo clippy -- -D warnings
+        continue-on-error: true
+
+  golden:
+    runs-on: ubuntu-latest
+    needs: [go, rust]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.21"
+      - uses: dtolnay/rust-toolchain@stable
+      - run: mkdir -p bin
+      - run: bash scripts/golden_compare.sh
